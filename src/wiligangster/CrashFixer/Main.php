@@ -9,25 +9,34 @@
 namespace wiligangster\CrashFixer;
 
 
+use pocketmine\block\Block;
 use pocketmine\event\block\SignChangeEvent;
+use pocketmine\event\entity\EntityInventoryChangeEvent;
 use pocketmine\event\Listener;
 use pocketmine\event\player\PlayerChatEvent;
+use pocketmine\event\player\PlayerCommandPreprocessEvent;
+use pocketmine\Player;
 use pocketmine\plugin\PluginBase;
 use pocketmine\utils\Config;
-use pocketmine\event\EventPriority;
 use pocketmine\utils\TextFormat;
 
 class Main extends PluginBase Implements Listener
 {
-
     public $words;
+
+    const COMMAND_HACK = [
+        "/tell",
+        "/w",
+        "/me",
+        "/whisper"
+    ];
 
     public function onEnable()
     {
         $this->getServer()->getPluginManager()->registerEvents($this, $this);
         if (!is_dir($this->getDataFolder())) mkdir($this->getDataFolder());
         if (!is_file($this->getDataFolder() . "worldlist.yml")) {
-            $this->setWords(new Config($this->getDataFolder() . "wordlist.yml", Config::YAML, ["character_banned" => "舾狽ꑺ쑟賞㱎嶈랉昖๵᢫븳뺄◓勔㭫菈ꯚ䔷뎊넿冕㾇灕悫侠섪噮ꆏ镃㭋瀓縇ᛷ혲憹緩읡帼塏緘殣圛벢祘태뱤钿ﯲࠈ不ʨ펯濢꧶훟ᖗ왥䳹퐇卄㿈ꕩ盠ⴁ냚捗籈喝縣툝䖅賓調䵝躳筺열ዽਸ਼죛℈ⴄ෠釧홋퍆ᶾ罭豥⧕꫊븮믪郪橧䡻섧损埳鷎⫒믷鯵�꣼뀋狖�㓐梧ퟑ獼蟱㮒徫끵᭛拟ꖛ龾搣佄फ㴢䠠ഀ饟ဢ桉뢿嫅擭䞶붘জ秬䘻㤌蔀씦삣눝坻瓳䘘꼤䎮붊᝜伷ꑇ﷭폪渕큛䊉餟풼ĺ地쎲愊襆ꜳ٪뵓쬅竞鳇媷綢ↈ뻤횦벱桩삆Ὄ뤖⦗铨ᣜ㢀", "message_prevent" => true, "message" => TextFormat::RED . "It's not allowed to do that !", "kick" => false, "kick_message" => TextFormat::RED . "It's not allowed to do that !"]));
+            $this->setWords(new Config($this->getDataFolder() . "wordlist.yml", Config::YAML, ["character_banned" => "๵᢫᝜﷭", "character_allowed" => ['é', 'à', 'ù', 'ç', 'è', '§'], "message_prevent" => true, "message" => TextFormat::RED . "It's not allowed to do that !", "kick" => false, "kick_message" => TextFormat::RED . "It's not allowed to do that !", "commands_suspect"=>self::COMMAND_HACK]));
             $this->getLogger()->info("The config has been created !");
         } else {
             $this->setWords(new Config($this->getDataFolder() . "wordlist.yml"));
@@ -59,11 +68,15 @@ class Main extends PluginBase Implements Listener
     {
         $needle = $event->getLines();
         $player = $event->getPlayer();
-        foreach ($needle as $word) {
-            for ($i = 0; $i < strlen($word); $i++) {
-                if (strpos($this->getWords()->get("character_banned"), $word[$i]) !== false) {
+        $block = $event->getBlock();
+        if ($player instanceof Player) {
+            foreach ($needle as $words) {
+                if ($this->wordFinder($words)) {
                     $event->setCancelled(true);
-                    if($this->getWords()->get("message_prevent")){
+                    $player->getLevel()->setBlock($block, Block::get(Block::AIR));
+                    $player->getLevel()->dropItem($block, $block->getPickedItem());
+
+                    if ($this->getWords()->get("message_prevent")) {
                         $player->sendMessage($this->getWords()->get("message"));
 
                     }
@@ -77,6 +90,7 @@ class Main extends PluginBase Implements Listener
     }
 
 
+
     /**
      * @param PlayerChatEvent $event
      */
@@ -84,17 +98,91 @@ class Main extends PluginBase Implements Listener
     {
         $words = $event->getMessage();
         $player = $event->getPlayer();
-        for ($i = 0; $i < strlen($words); $i++) {
-            if (strpos($this->getWords()->get("character_banned"), $words[$i]) !== false) {
+
+        if ($this->wordFinder($words)) {
+            $event->setCancelled(true);
+
+            if ($this->getWords()->get("message_prevent")) {
+                $player->sendMessage($this->getWords()->get("message"));
+            }
+            if ($this->getWords()->get("kick")) {
+                $player->kick($this->getWords()->get("kick_message"), false);
+            }
+        }
+    }
+
+    /**
+     * @param EntityInventoryChangeEvent $event
+     */
+    public function onEntityInventory(EntityInventoryChangeEvent $event): void
+    {
+        $item = $event->getNewItem();
+        $player = $event->getEntity();
+
+        if ($player instanceof Player) {
+            if ($this->wordFinder($item->getCustomName())) {
                 $event->setCancelled(true);
-                if($this->getWords()->get("message_prevent")){
+
+                $player->getInventory()->removeItem($item);
+
+                if ($this->getWords()->get("message_prevent")) {
                     $player->sendMessage($this->getWords()->get("message"));
                 }
                 if ($this->getWords()->get("kick")) {
-                    $event->getPlayer()->kick($this->getWords()->get("kick_message"), false);
+                    $player->kick($this->getWords()->get("kick_message"), false);
                 }
-                break;
             }
         }
+    }
+
+
+    /**
+     * @param PlayerCommandPreprocessEvent $event
+     */
+    public function onPlayerCommand(PlayerCommandPreprocessEvent $event): void
+    {
+        $player = $event->getPlayer();
+        $message = $event->getMessage();
+        $args = explode(" ",$message);
+        $cmd = array_shift($args);
+        if(in_array($cmd, $this->getWords()->get("commands_suspect"))){
+            if($this->wordFinder(implode(" ", $args))){
+                $event->setCancelled(true);
+                if ($this->getWords()->get("message_prevent")) {
+                    $player->sendMessage($this->getWords()->get("message"));
+                }
+                if ($this->getWords()->get("kick")) {
+                    $player->kick($this->getWords()->get("kick_message"), false);
+                }
+            }
+        }
+    }
+
+
+    /**
+     * @param string $words
+     * @return bool
+     */
+    public function wordFinder(string $words)
+    {
+        $find = false;
+        $bypass = false;
+        $charallowed = false;
+        for ($i = 0; $i < strlen($words); $i++) {
+            $convert = mb_convert_encoding($words[$i], "", 'UTF-8');
+            if ($convert == "?") {
+                $find = true;
+            }
+            if (in_array($words[$i], $this->getWords()->get('character_allowed'))) {
+                $charallowed = true;
+            }
+            if (strpos($this->getWords()->get("character_banned"), $words[$i]) !== false) {
+                $bypass = true;
+            }
+        }
+        if ($find && $charallowed || $bypass) {
+            return true;
+        }
+        return false;
     }
 }
