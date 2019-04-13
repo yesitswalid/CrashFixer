@@ -4,5 +4,4 @@ branches:
 projects:
   CrashFixer:
     path: ""
-    icon: icon.png
 ...
